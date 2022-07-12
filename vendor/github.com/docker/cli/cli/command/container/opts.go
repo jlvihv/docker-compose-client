@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
+	"io/ioutil"
 	"path"
 	"reflect"
 	"regexp"
@@ -19,6 +19,7 @@ import (
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/errdefs"
+	"github.com/docker/docker/pkg/signal"
 	"github.com/docker/go-connections/nat"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -182,7 +183,7 @@ func addFlags(flags *pflag.FlagSet) *containerOptions {
 	flags.Var(&copts.labelsFile, "label-file", "Read in a line delimited file of labels")
 	flags.BoolVar(&copts.readonlyRootfs, "read-only", false, "Mount the container's root filesystem as read only")
 	flags.StringVar(&copts.restartPolicy, "restart", "no", "Restart policy to apply when a container exits")
-	flags.StringVar(&copts.stopSignal, "stop-signal", "", "Signal to stop the container")
+	flags.StringVar(&copts.stopSignal, "stop-signal", signal.DefaultStopSignal, "Signal to stop a container")
 	flags.IntVar(&copts.stopTimeout, "stop-timeout", 0, "Timeout (in seconds) to stop a container")
 	flags.SetAnnotation("stop-timeout", "version", []string{"1.25"})
 	flags.Var(copts.sysctls, "sysctl", "Sysctl options")
@@ -598,8 +599,10 @@ func parse(flags *pflag.FlagSet, copts *containerOptions, serverOS string) (*con
 		Entrypoint:      entrypoint,
 		WorkingDir:      copts.workingDir,
 		Labels:          opts.ConvertKVStringsToMap(labels),
-		StopSignal:      copts.stopSignal,
 		Healthcheck:     healthConfig,
+	}
+	if flags.Changed("stop-signal") {
+		config.StopSignal = copts.stopSignal
 	}
 	if flags.Changed("stop-timeout") {
 		config.StopTimeout = &copts.stopTimeout
@@ -845,7 +848,7 @@ func parseSecurityOpts(securityOpts []string) ([]string, error) {
 			}
 		}
 		if con[0] == "seccomp" && con[1] != "unconfined" {
-			f, err := os.ReadFile(con[1])
+			f, err := ioutil.ReadFile(con[1])
 			if err != nil {
 				return securityOpts, errors.Errorf("opening seccomp profile (%s) failed: %v", con[1], err)
 			}

@@ -95,9 +95,6 @@ func psCommand(p *projectOptions, backend api.Service) *cobra.Command {
 }
 
 func runPs(ctx context.Context, backend api.Service, services []string, opts psOptions) error {
-
-	PsCmdResult = []api.ContainerSummary{}
-
 	projectName, err := opts.toProjectName()
 	if err != nil {
 		return err

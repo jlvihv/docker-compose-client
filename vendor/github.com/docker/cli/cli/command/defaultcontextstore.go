@@ -41,18 +41,23 @@ type EndpointDefaultResolver interface {
 	// the lack of a default (e.g. because the config file which
 	// would contain it is missing). If there is no default then
 	// returns nil, nil, nil.
-	ResolveDefault() (interface{}, *store.EndpointTLSData, error)
+	ResolveDefault(Orchestrator) (interface{}, *store.EndpointTLSData, error)
 }
 
 // ResolveDefaultContext creates a Metadata for the current CLI invocation parameters
 func ResolveDefaultContext(opts *cliflags.CommonOptions, config *configfile.ConfigFile, storeconfig store.Config, stderr io.Writer) (*DefaultContext, error) {
+	stackOrchestrator, err := GetStackOrchestrator("", "", config.StackOrchestrator, stderr)
+	if err != nil {
+		return nil, err
+	}
 	contextTLSData := store.ContextTLSData{
 		Endpoints: make(map[string]store.EndpointTLSData),
 	}
 	contextMetadata := store.Metadata{
 		Endpoints: make(map[string]interface{}),
 		Metadata: DockerContext{
-			Description: "",
+			Description:       "",
+			StackOrchestrator: stackOrchestrator,
 		},
 		Name: DefaultContextName,
 	}
@@ -72,7 +77,7 @@ func ResolveDefaultContext(opts *cliflags.CommonOptions, config *configfile.Conf
 		}
 		ep := get()
 		if i, ok := ep.(EndpointDefaultResolver); ok {
-			meta, tls, err := i.ResolveDefault()
+			meta, tls, err := i.ResolveDefault(stackOrchestrator)
 			if err != nil {
 				return err
 			}

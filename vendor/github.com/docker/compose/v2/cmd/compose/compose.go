@@ -262,16 +262,16 @@ func RootCommand(dockerCli command.Cli, backend api.Service) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			//parent := cmd.Root()
-			//if parent != nil {
-			//	parentPrerun := parent.PersistentPreRunE
-			//	if parentPrerun != nil {
-			//		err := parentPrerun(cmd, args)
-			//		if err != nil {
-			//			return err
-			//		}
-			//	}
-			//}
+			parent := cmd.Root()
+			if parent != nil {
+				parentPrerun := parent.PersistentPreRunE
+				if parentPrerun != nil {
+					err := parentPrerun(cmd, args)
+					if err != nil {
+						return err
+					}
+				}
+			}
 			if noAnsi {
 				if ansi != "auto" {
 					return errors.New(`cannot specify DEPRECATED "--no-ansi" and "--ansi". Please use only "--ansi"`)

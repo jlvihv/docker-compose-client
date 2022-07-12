@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"sort"
 
 	"github.com/docker/cli/cli/command"
@@ -16,7 +17,7 @@ import (
 	registrytypes "github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/registry"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/theupdateframework/notary/client"
@@ -282,7 +283,7 @@ func imagePullPrivileged(ctx context.Context, cli command.Cli, imgRefAndAuth tru
 
 	out := cli.Out()
 	if opts.quiet {
-		out = streams.NewOut(io.Discard)
+		out = streams.NewOut(ioutil.Discard)
 	}
 	return jsonmessage.DisplayJSONMessagesToStream(responseBody, out, nil)
 }

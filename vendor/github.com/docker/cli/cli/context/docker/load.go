@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -66,10 +67,17 @@ func (c *Endpoint) tlsConfig() (*tls.Config, error) {
 		keyBytes := c.TLSData.Key
 		pemBlock, _ := pem.Decode(keyBytes)
 		if pemBlock == nil {
-			return nil, errors.New("no valid private key found")
+			return nil, fmt.Errorf("no valid private key found")
 		}
+
+		var err error
+		// TODO should we follow Golang, and deprecate RFC 1423 encryption, and produce a warning (or just error)? see https://github.com/docker/cli/issues/3212
 		if x509.IsEncryptedPEMBlock(pemBlock) { //nolint: staticcheck // SA1019: x509.IsEncryptedPEMBlock is deprecated, and insecure by design
-			return nil, errors.New("private key is encrypted - support for encrypted private keys has been removed, see https://docs.docker.com/go/deprecated/")
+			keyBytes, err = x509.DecryptPEMBlock(pemBlock, []byte(c.TLSPassword)) //nolint: staticcheck // SA1019: x509.IsEncryptedPEMBlock is deprecated, and insecure by design
+			if err != nil {
+				return nil, errors.Wrap(err, "private key is encrypted, but could not decrypt it")
+			}
+			keyBytes = pem.EncodeToMemory(&pem.Block{Type: pemBlock.Type, Bytes: keyBytes})
 		}
 
 		x509cert, err := tls.X509KeyPair(c.TLSData.Cert, keyBytes)

@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/docker/cli/cli/config"
+	cliconfig "github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/config/configfile"
 	dcontext "github.com/docker/cli/cli/context"
 	"github.com/docker/cli/cli/context/docker"
@@ -31,7 +33,9 @@ import (
 	"github.com/moby/term"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"github.com/theupdateframework/notary"
 	notaryclient "github.com/theupdateframework/notary/client"
+	"github.com/theupdateframework/notary/passphrase"
 )
 
 // Streams is an interface which exposes the standard input and output streams
@@ -57,9 +61,9 @@ type Cli interface {
 	ManifestStore() manifeststore.Store
 	RegistryClient(bool) registryclient.RegistryClient
 	ContentTrustEnabled() bool
-	BuildKitEnabled() (bool, error)
 	ContextStore() store.Store
 	CurrentContext() string
+	StackOrchestrator(flagValue string) (Orchestrator, error)
 	DockerEndpoint() docker.Endpoint
 }
 
@@ -128,7 +132,7 @@ func (cli *DockerCli) ConfigFile() *configfile.ConfigFile {
 }
 
 func (cli *DockerCli) loadConfigFile() {
-	cli.configFile = config.LoadDefaultConfigFile(cli.err)
+	cli.configFile = cliconfig.LoadDefaultConfigFile(cli.err)
 }
 
 // ServerInfo returns the server version details for the host this client is
@@ -167,24 +171,18 @@ func (cli *DockerCli) ContentTrustEnabled() bool {
 	return cli.contentTrust
 }
 
-// BuildKitEnabled returns buildkit is enabled or not.
-func (cli *DockerCli) BuildKitEnabled() (bool, error) {
-	// use DOCKER_BUILDKIT env var value if set
-	if v, ok := os.LookupEnv("DOCKER_BUILDKIT"); ok {
-		enabled, err := strconv.ParseBool(v)
+// BuildKitEnabled returns whether buildkit is enabled either through a daemon setting
+// or otherwise the client-side DOCKER_BUILDKIT environment variable
+func BuildKitEnabled(si ServerInfo) (bool, error) {
+	buildkitEnabled := si.BuildkitVersion == types.BuilderBuildKit
+	if buildkitEnv := os.Getenv("DOCKER_BUILDKIT"); buildkitEnv != "" {
+		var err error
+		buildkitEnabled, err = strconv.ParseBool(buildkitEnv)
 		if err != nil {
 			return false, errors.Wrap(err, "DOCKER_BUILDKIT environment variable expects boolean value")
 		}
-		return enabled, nil
 	}
-	// if a builder alias is defined, we are using BuildKit
-	aliasMap := cli.ConfigFile().Aliases
-	if _, ok := aliasMap["builder"]; ok {
-		return true, nil
-	}
-	// otherwise, assume BuildKit is enabled but
-	// not if wcow reported from server side
-	return cli.ServerInfo().OSType != "windows", nil
+	return buildkitEnabled, nil
 }
 
 // ManifestStore returns a store for local manifests
@@ -227,7 +225,7 @@ func (cli *DockerCli) Initialize(opts *cliflags.ClientOptions, ops ...Initialize
 	cliflags.SetLogLevel(opts.Common.LogLevel)
 
 	if opts.ConfigDir != "" {
-		config.SetDir(opts.ConfigDir)
+		cliconfig.SetDir(opts.ConfigDir)
 	}
 
 	if opts.Common.Debug {
@@ -236,7 +234,7 @@ func (cli *DockerCli) Initialize(opts *cliflags.ClientOptions, ops ...Initialize
 
 	cli.loadConfigFile()
 
-	baseContextStore := store.New(config.ContextStoreDir(), cli.contextStoreConfig)
+	baseContextStore := store.New(cliconfig.ContextStoreDir(), cli.contextStoreConfig)
 	cli.contextStore = &ContextStoreWithDefault{
 		Store: baseContextStore,
 		Resolver: func() (*DefaultContext, error) {
@@ -254,6 +252,14 @@ func (cli *DockerCli) Initialize(opts *cliflags.ClientOptions, ops ...Initialize
 
 	if cli.client == nil {
 		cli.client, err = newAPIClientFromEndpoint(cli.dockerEndpoint, cli.configFile)
+		if tlsconfig.IsErrEncryptedKey(err) {
+			passRetriever := passphrase.PromptRetrieverWithInOut(cli.In(), cli.Out(), nil)
+			newClient := func(password string) (client.APIClient, error) {
+				cli.dockerEndpoint.TLSPassword = password //nolint: staticcheck // SA1019: cli.dockerEndpoint.TLSPassword is deprecated
+				return newAPIClientFromEndpoint(cli.dockerEndpoint, cli.configFile)
+			}
+			cli.client, err = getClientWithPassword(passRetriever, newClient)
+		}
 		if err != nil {
 			return err
 		}
@@ -270,17 +276,17 @@ func (cli *DockerCli) Initialize(opts *cliflags.ClientOptions, ops ...Initialize
 // NewAPIClientFromFlags creates a new APIClient from command line flags
 func NewAPIClientFromFlags(opts *cliflags.CommonOptions, configFile *configfile.ConfigFile) (client.APIClient, error) {
 	storeConfig := DefaultContextStoreConfig()
-	contextStore := &ContextStoreWithDefault{
-		Store: store.New(config.ContextStoreDir(), storeConfig),
+	store := &ContextStoreWithDefault{
+		Store: store.New(cliconfig.ContextStoreDir(), storeConfig),
 		Resolver: func() (*DefaultContext, error) {
-			return ResolveDefaultContext(opts, configFile, storeConfig, io.Discard)
+			return ResolveDefaultContext(opts, configFile, storeConfig, ioutil.Discard)
 		},
 	}
-	contextName, err := resolveContextName(opts, configFile, contextStore)
+	contextName, err := resolveContextName(opts, configFile, store)
 	if err != nil {
 		return nil, err
 	}
-	endpoint, err := resolveDockerEndpoint(contextStore, contextName)
+	endpoint, err := resolveDockerEndpoint(store, contextName)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to resolve docker endpoint")
 	}
@@ -371,6 +377,20 @@ func (cli *DockerCli) initializeFromClient() {
 	cli.client.NegotiateAPIVersionPing(ping)
 }
 
+func getClientWithPassword(passRetriever notary.PassRetriever, newClient func(password string) (client.APIClient, error)) (client.APIClient, error) {
+	for attempts := 0; ; attempts++ {
+		passwd, giveup, err := passRetriever("private", "encrypted TLS private", false, attempts)
+		if giveup || err != nil {
+			return nil, errors.Wrap(err, "private key is encrypted, but could not get passphrase")
+		}
+
+		apiclient, err := newClient(passwd)
+		if !tlsconfig.IsErrEncryptedKey(err) {
+			return apiclient, err
+		}
+	}
+}
+
 // NotaryClient provides a Notary Repository to interact with signed metadata for an image
 func (cli *DockerCli) NotaryClient(imgRefAndAuth trust.ImageRefAndAuth, actions []string) (notaryclient.Repository, error) {
 	return trust.GetNotaryRepository(cli.In(), cli.Out(), UserAgent(), imgRefAndAuth.RepoInfo(), imgRefAndAuth.AuthConfig(), actions...)
@@ -384,6 +404,25 @@ func (cli *DockerCli) ContextStore() store.Store {
 // CurrentContext returns the current context name
 func (cli *DockerCli) CurrentContext() string {
 	return cli.currentContext
+}
+
+// StackOrchestrator resolves which stack orchestrator is in use
+func (cli *DockerCli) StackOrchestrator(flagValue string) (Orchestrator, error) {
+	currentContext := cli.CurrentContext()
+	ctxRaw, err := cli.ContextStore().GetMetadata(currentContext)
+	if store.IsErrContextDoesNotExist(err) {
+		// case where the currentContext has been removed (CLI behavior is to fallback to using DOCKER_HOST based resolution)
+		return GetStackOrchestrator(flagValue, "", cli.ConfigFile().StackOrchestrator, cli.Err())
+	}
+	if err != nil {
+		return "", err
+	}
+	ctxMeta, err := GetDockerContext(ctxRaw)
+	if err != nil {
+		return "", err
+	}
+	ctxOrchestrator := string(ctxMeta.StackOrchestrator)
+	return GetStackOrchestrator(flagValue, ctxOrchestrator, cli.ConfigFile().StackOrchestrator, cli.Err())
 }
 
 // DockerEndpoint returns the current docker endpoint
@@ -421,13 +460,12 @@ type ClientInfo struct {
 // It applies by default the standard streams, and the content trust from
 // environment.
 func NewDockerCli(ops ...DockerCliOption) (*DockerCli, error) {
+	cli := &DockerCli{}
 	defaultOps := []DockerCliOption{
 		WithContentTrustFromEnv(),
-		WithDefaultContextStoreConfig(),
 	}
+	cli.contextStoreConfig = DefaultContextStoreConfig()
 	ops = append(defaultOps, ops...)
-
-	cli := &DockerCli{}
 	if err := cli.Apply(ops...); err != nil {
 		return nil, err
 	}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"io/ioutil"
 	"os"
 	"path/filepath"
 )
@@ -32,18 +33,18 @@ func (s *tlsStore) createOrUpdate(contextID contextdir, endpointName, filename s
 	if err := os.MkdirAll(epdir, 0700); err != nil {
 		return err
 	}
-	return os.WriteFile(s.filePath(contextID, endpointName, filename), data, 0600)
+	return ioutil.WriteFile(s.filePath(contextID, endpointName, filename), data, 0600)
 }
 
 func (s *tlsStore) getData(contextID contextdir, endpointName, filename string) ([]byte, error) {
-	data, err := os.ReadFile(s.filePath(contextID, endpointName, filename))
+	data, err := ioutil.ReadFile(s.filePath(contextID, endpointName, filename))
 	if err != nil {
 		return nil, convertTLSDataDoesNotExist(endpointName, filename, err)
 	}
 	return data, nil
 }
 
-func (s *tlsStore) remove(contextID contextdir, endpointName, filename string) error { // nolint:unused
+func (s *tlsStore) remove(contextID contextdir, endpointName, filename string) error {
 	err := os.Remove(s.filePath(contextID, endpointName, filename))
 	if os.IsNotExist(err) {
 		return nil
@@ -60,7 +61,7 @@ func (s *tlsStore) removeAllContextData(contextID contextdir) error {
 }
 
 func (s *tlsStore) listContextData(contextID contextdir) (map[string]EndpointFiles, error) {
-	epFSs, err := os.ReadDir(s.contextDir(contextID))
+	epFSs, err := ioutil.ReadDir(s.contextDir(contextID))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return map[string]EndpointFiles{}, nil
@@ -71,7 +72,7 @@ func (s *tlsStore) listContextData(contextID contextdir) (map[string]EndpointFil
 	for _, epFS := range epFSs {
 		if epFS.IsDir() {
 			epDir := s.endpointDir(contextID, epFS.Name())
-			fss, err := os.ReadDir(epDir)
+			fss, err := ioutil.ReadDir(epDir)
 			if err != nil {
 				return nil, err
 			}

@@ -3,7 +3,6 @@ package container
 import (
 	"context"
 	"fmt"
-	"net"
 	"strings"
 
 	"github.com/docker/cli/cli"
@@ -62,7 +61,7 @@ func runPort(dockerCli command.Cli, opts *portOptions) error {
 		}
 		if frontends, exists := c.NetworkSettings.Ports[newP]; exists && frontends != nil {
 			for _, frontend := range frontends {
-				fmt.Fprintln(dockerCli.Out(), net.JoinHostPort(frontend.HostIP, frontend.HostPort))
+				fmt.Fprintf(dockerCli.Out(), "%s:%s\n", frontend.HostIP, frontend.HostPort)
 			}
 			return nil
 		}
@@ -71,7 +70,7 @@ func runPort(dockerCli command.Cli, opts *portOptions) error {
 
 	for from, frontends := range c.NetworkSettings.Ports {
 		for _, frontend := range frontends {
-			fmt.Fprintf(dockerCli.Out(), "%s -> %s\n", from, net.JoinHostPort(frontend.HostIP, frontend.HostPort))
+			fmt.Fprintf(dockerCli.Out(), "%s -> %s:%s\n", from, frontend.HostIP, frontend.HostPort)
 		}
 	}
 

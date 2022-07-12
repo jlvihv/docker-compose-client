@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"path"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 	"strings"
 
 	"github.com/docker/docker/errdefs"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
 )
 
@@ -348,7 +349,7 @@ func importTar(name string, s Writer, reader io.Reader) error {
 			return errors.Wrap(err, hdr.Name)
 		}
 		if hdr.Name == metaFile {
-			data, err := io.ReadAll(tr)
+			data, err := ioutil.ReadAll(tr)
 			if err != nil {
 				return err
 			}
@@ -361,7 +362,7 @@ func importTar(name string, s Writer, reader io.Reader) error {
 			}
 			importedMetaFile = true
 		} else if strings.HasPrefix(hdr.Name, "tls/") {
-			data, err := io.ReadAll(tr)
+			data, err := ioutil.ReadAll(tr)
 			if err != nil {
 				return err
 			}
@@ -377,7 +378,7 @@ func importTar(name string, s Writer, reader io.Reader) error {
 }
 
 func importZip(name string, s Writer, reader io.Reader) error {
-	body, err := io.ReadAll(&LimitedReader{R: reader, N: maxAllowedFileSizeToImport})
+	body, err := ioutil.ReadAll(&LimitedReader{R: reader, N: maxAllowedFileSizeToImport})
 	if err != nil {
 		return err
 	}
@@ -405,7 +406,7 @@ func importZip(name string, s Writer, reader io.Reader) error {
 				return err
 			}
 
-			data, err := io.ReadAll(&LimitedReader{R: f, N: maxAllowedFileSizeToImport})
+			data, err := ioutil.ReadAll(&LimitedReader{R: f, N: maxAllowedFileSizeToImport})
 			defer f.Close()
 			if err != nil {
 				return err
@@ -423,7 +424,7 @@ func importZip(name string, s Writer, reader io.Reader) error {
 			if err != nil {
 				return err
 			}
-			data, err := io.ReadAll(f)
+			data, err := ioutil.ReadAll(f)
 			defer f.Close()
 			if err != nil {
 				return err

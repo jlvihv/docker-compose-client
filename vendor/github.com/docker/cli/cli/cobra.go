@@ -7,7 +7,7 @@ import (
 
 	pluginmanager "github.com/docker/cli/cli-plugins/manager"
 	"github.com/docker/cli/cli/command"
-	"github.com/docker/cli/cli/config"
+	cliconfig "github.com/docker/cli/cli/config"
 	cliflags "github.com/docker/cli/cli/flags"
 	"github.com/moby/term"
 	"github.com/morikuni/aec"
@@ -22,7 +22,7 @@ func setupCommonRootCommand(rootCmd *cobra.Command) (*cliflags.ClientOptions, *p
 	opts := cliflags.NewClientOptions()
 	flags := rootCmd.Flags()
 
-	flags.StringVar(&opts.ConfigDir, "config", config.Dir(), "Location of client config files")
+	flags.StringVar(&opts.ConfigDir, "config", cliconfig.Dir(), "Location of client config files")
 	opts.Common.InstallFlags(flags)
 
 	cobra.AddTemplateFunc("add", func(a, b int) int { return a + b })
@@ -58,8 +58,11 @@ func setupCommonRootCommand(rootCmd *cobra.Command) (*cliflags.ClientOptions, *p
 // SetupRootCommand sets default usage, help, and error handling for the
 // root command.
 func SetupRootCommand(rootCmd *cobra.Command) (*cliflags.ClientOptions, *pflag.FlagSet, *cobra.Command) {
+	opts, flags, helpCmd := setupCommonRootCommand(rootCmd)
+
 	rootCmd.SetVersionTemplate("Docker version {{.Version}}\n")
-	return setupCommonRootCommand(rootCmd)
+
+	return opts, flags, helpCmd
 }
 
 // SetupPluginRootCommand sets default usage, help and error handling for a plugin root command.

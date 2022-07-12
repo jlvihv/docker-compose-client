@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -34,7 +35,7 @@ func (s *metadataStore) createOrUpdate(meta Metadata) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(contextDir, metaFile), bytes, 0644)
+	return ioutil.WriteFile(filepath.Join(contextDir, metaFile), bytes, 0644)
 }
 
 func parseTypedOrMap(payload []byte, getter TypeGetter) (interface{}, error) {
@@ -57,7 +58,7 @@ func parseTypedOrMap(payload []byte, getter TypeGetter) (interface{}, error) {
 
 func (s *metadataStore) get(id contextdir) (Metadata, error) {
 	contextDir := s.contextDir(id)
-	bytes, err := os.ReadFile(filepath.Join(contextDir, metaFile))
+	bytes, err := ioutil.ReadFile(filepath.Join(contextDir, metaFile))
 	if err != nil {
 		return Metadata{}, convertContextDoesNotExist(err)
 	}
@@ -116,7 +117,7 @@ func isContextDir(path string) bool {
 }
 
 func listRecursivelyMetadataDirs(root string) ([]string, error) {
-	fis, err := os.ReadDir(root)
+	fis, err := ioutil.ReadDir(root)
 	if err != nil {
 		return nil, err
 	}
