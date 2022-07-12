@@ -1,4 +1,4 @@
-package docker_compose_actuator
+package docker_compose_client
 
 import (
 	"context"
