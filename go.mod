@@ -1,4 +1,4 @@
-module github.com/jlvihv/docker-compose-actuator
+module github.com/jlvihv/docker-compose-client
 
 go 1.18
 
